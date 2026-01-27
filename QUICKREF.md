@@ -281,12 +281,11 @@ python3 $REPL -v init /path/to/codebase
 │       └── rlm_repl.py
 ├── agents/
 │   └── rlm-subcall.md
-├── rlm_state/
-│   ├── index.db          # SQLite database
-│   ├── index.db-wal      # WAL file (auto-managed)
-│   ├── index.db-shm      # Shared memory (auto-managed)
-│   └── chunks/           # Materialized chunks
-└── CLAUDE.md             # Project instructions
+└── rlm_state/
+    ├── index.db          # SQLite database
+    ├── index.db-wal      # WAL file (auto-managed)
+    ├── index.db-shm      # Shared memory (auto-managed)
+    └── chunks/           # Materialized chunks
 ```
 
 ## Database Schema
@@ -324,5 +323,5 @@ export RLM_CHUNKS_DIR=.claude/rlm_state/chunks
 ## Links
 
 - Full documentation: README.md
-- Usage examples: USAGE_GUIDE.md  
+- Skill documentation: .claude/skills/rlm/SKILL.md
 - RLM paper: https://arxiv.org/abs/2512.24601

@@ -268,17 +268,6 @@ for f in backend_files:
     print(f"  {f['filepath']} ({f['language']})")
 ```
 
-## Performance
-
-### Benchmarks (1M LOC across 3 repos)
-
-| Operation | Time |
-|-----------|------|
-| Initial indexing (all repos) | 5-15 minutes |
-| Incremental re-index | 10-60 seconds |
-| Symbol lookup (all repos) | <100ms |
-| Symbol lookup (single repo) | <50ms |
-| FTS5 content search | <500ms |
 
 ## Troubleshooting
 
@@ -316,11 +305,10 @@ python3 rlm_repl.py vacuum
 │       └── rlm_repl.py
 ├── agents/
 │   └── rlm-subcall.md
-├── rlm_state/
-│   ├── index.db          # Single database for all repos
-│   ├── index.db-wal
-│   └── chunks/
-└── CLAUDE.md
+└── rlm_state/
+    ├── index.db          # Single database for all repos
+    ├── index.db-wal
+    └── chunks/
 ```
 
 ## Testing
