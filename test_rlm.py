@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script for RLM v2 improvements.
+Test script for RLM implementation.
 
 Creates sample files in different languages, indexes them, and verifies:
 1. Persistent connection / WAL mode
@@ -11,16 +11,15 @@ Creates sample files in different languages, indexes them, and verifies:
 6. Parent symbol tracking
 """
 
-import os
+import shutil
 import sys
 import tempfile
-import shutil
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add skills directory to path
+sys.path.insert(0, str(Path(__file__).parent / ".claude" / "skills" / "rlm" / "scripts"))
 
-from rlm_repl_v2 import (
+from rlm_repl import (
     Database, CodebaseIndexer, PythonAnalyzer, JavaScriptAnalyzer, JavaAnalyzer,
     _make_helpers, DEFAULT_STATE_DIR
 )
@@ -569,7 +568,7 @@ def helper_function():
 def main():
     """Run all tests."""
     print("="*60)
-    print("RLM v2 Test Suite")
+    print("RLM Test Suite")
     print("="*60)
     
     # Create temp directory for tests

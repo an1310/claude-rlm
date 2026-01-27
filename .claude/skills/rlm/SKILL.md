@@ -19,7 +19,7 @@ Use this Skill when:
 - Understanding symbol relationships across Python, JavaScript, TypeScript, or Java
 - Working with contexts that exhibit "middle child syndrome"
 
-## Key Improvements (v2.2)
+## Key Features
 
 - **Multi-repository support** - Index multiple repos into single database
 - **Persistent connection** - No connection churn during indexing
@@ -54,21 +54,21 @@ First time with a codebase (or multiple repos):
 
 ```bash
 # Index a single repo
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/codebase
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/codebase
 
 # Index multiple repos into the same database
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/frontend --name frontend
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/backend --name backend
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/shared --name shared-lib
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/frontend --name frontend
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/backend --name backend
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/shared --name shared-lib
 
 # Index specific languages only
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/codebase --extensions .py,.java
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/codebase --extensions .py,.java
 
 # List all repos
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py repos
+python3 .claude/skills/rlm/scripts/rlm_repl.py repos
 
 # Check results
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py status --languages --chunks
+python3 .claude/skills/rlm/scripts/rlm_repl.py status --languages --chunks
 ```
 
 ### 2. Incremental Re-indexing
@@ -77,10 +77,10 @@ After code changes:
 
 ```bash
 # Just run init again - unchanged files are skipped automatically
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/codebase
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/codebase
 
 # Force full re-index if needed
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py init /path/to/codebase --full
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/codebase --full
 ```
 
 ### 3. Query-Driven Workflow
@@ -97,22 +97,22 @@ For specific questions:
 
 ```bash
 # Symbol search (any language)
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py search --symbol "UserAuth"
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --symbol "UserAuth"
 
 # FTS5 content search (FAST - use for keywords)
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py search --pattern "authenticate" --fts
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --pattern "authenticate" --fts
 
 # Regex content search (for complex patterns)
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py search --pattern "async def.*process"
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --pattern "async def.*process"
 
 # Import search
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py search --imports "springframework"
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --imports "springframework"
 ```
 
 **Step 3: Materialize relevant chunks**
 
 ```bash
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py exec <<'PY'
+python3 .claude/skills/rlm/scripts/rlm_repl.py exec <<'PY'
 # Find and write chunks
 results = find_symbol('UserService', 'class')
 for r in results[:5]:
@@ -136,7 +136,7 @@ with query: "How does authentication work?"
 For broad architectural questions:
 
 ```bash
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py exec <<'PY'
+python3 .claude/skills/rlm/scripts/rlm_repl.py exec <<'PY'
 # Get overview
 s = stats()
 print(f"Files: {s['files']}, Chunks: {s['chunks']}, Symbols: {s['symbols']}")
@@ -344,22 +344,22 @@ sqlite3 .claude/rlm_state/index.db "PRAGMA wal_checkpoint(TRUNCATE)"
 **Slow FTS5 searches**:
 ```bash
 # Rebuild FTS index
-python3 .claude/skills/rlm/scripts/rlm_repl_v2.py vacuum
+python3 .claude/skills/rlm/scripts/rlm_repl.py vacuum
 ```
 
 **Missing chunks for a file**:
 ```bash
 # Check if file was indexed
-python3 rlm_repl_v2.py exec -c "
-f = db.get_file_by_path('src/main.java')
-print(f)
+python3 .claude/skills/rlm/scripts/rlm_repl.py exec -c "
+results = db.query('SELECT * FROM files WHERE filepath LIKE ?', ('%main.java%',))
+print(results)
 "
 
 # Force re-index
-python3 rlm_repl_v2.py exec -c "
+python3 .claude/skills/rlm/scripts/rlm_repl.py exec -c "
 db.execute('DELETE FROM files WHERE filepath LIKE ?', ('%main.java%',))
 "
-python3 rlm_repl_v2.py init /path/to/codebase
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/codebase
 ```
 
 **Java annotations not captured**:
