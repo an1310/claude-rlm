@@ -1,6 +1,6 @@
 ---
 name: rlm
-description: Run a Recursive Language Model workflow for large codebases using SQLite-backed indexing, AST/regex-based chunking, FTS5 search, and intelligent query routing. Optimized for 1M+ LOC codebases in Python, JavaScript, TypeScript, and Java.
+description: Persistent memory and codebase indexing for Claude Code. SQLite-backed code analysis with FTS5 search, AST/regex chunking, and a memory system that learns across sessions. Supports Python, JavaScript, TypeScript, and Java.
 allowed-tools:
   - Read
   - Write
@@ -10,7 +10,7 @@ allowed-tools:
   - Bash
 ---
 
-# rlm (Recursive Language Model workflow for codebases)
+# Claude Memory - Codebase Indexing & Persistent Memory
 
 Use this Skill when:
 - Analyzing large codebases (100K+ LOC) that exceed typical context limits
@@ -365,3 +365,121 @@ python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/codebase
 **Java annotations not captured**:
 The analyzer looks backwards for `@` lines before class/method declarations.
 If issues persist, the regex patterns in `JavaAnalyzer` may need adjustment.
+
+---
+
+## Memory System
+
+Claude Memory includes a persistent memory system for storing learned facts, preferences, and context across sessions.
+
+### Key Features
+
+- **Automatic context injection** - Relevant memories injected at session start
+- **Automatic capture** - Pattern-based extraction of memories from conversations
+- **Local semantic search** - HNSW vector index with fastembed (optional)
+- **User profile** - Persistent preferences
+- **Zero cloud dependencies** - Fully air-gapped operation
+
+### Memory Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `fact` | Learned information about project/domain | "Project uses PostgreSQL" |
+| `preference` | User preferences for style/tools | "Prefers functional style" |
+| `instruction` | Standing instructions to follow | "Always run tests" |
+| `decision` | Design decisions made | "Using JWT for auth" |
+| `context` | Project context | "Migrating from v1 API" |
+| `pattern` | Code patterns to follow | "Error handling via Result type" |
+
+### Memory Commands
+
+```bash
+# Add a memory
+python3 rlm_repl.py memory add "User prefers TypeScript" --type preference --importance 0.8
+
+# Quick remember
+python3 rlm_repl.py remember "Project uses Prisma for database"
+
+# Search memories
+python3 rlm_repl.py memory search "database"
+
+# List all memories
+python3 rlm_repl.py memory list
+python3 rlm_repl.py memory list --type preference
+
+# Get session context
+python3 rlm_repl.py memory context
+
+# View statistics
+python3 rlm_repl.py memory stats
+
+# View/set preferences
+python3 rlm_repl.py memory profile
+python3 rlm_repl.py memory set-pref code_style functional
+```
+
+### Memory Helpers (in exec mode)
+
+```python
+# Add a memory
+memory_add("User prefers tabs over spaces", memory_type='preference', importance=0.7)
+
+# Search memories
+results = memory_search("database")
+for m in results:
+    print(f"{m['content']} ({m['importance']})")
+
+# List memories by type
+prefs = memory_list(memory_type='preference')
+
+# Get session context
+context = memory_context(max_chars=2000)
+print(context)
+
+# Get/set preferences
+set_preference('test_framework', 'pytest')
+framework = get_preference('test_framework', 'unittest')
+
+# Memory statistics
+stats = memory_stats()
+print(f"Total memories: {stats['total_memories']}")
+```
+
+### Automatic Capture Patterns
+
+The system automatically captures memories from phrases like:
+- "remember that..." / "remember this..."
+- "I prefer..." / "I like..."
+- "always..." / "never..."
+- "we decided..." / "let's go with..."
+
+### Semantic Search (Optional)
+
+For semantic search, install optional dependencies:
+
+```bash
+pip install fastembed>=0.3.0 hnswlib>=0.8.0 numpy>=1.24.0
+```
+
+First embedding generation downloads ~500MB model (cached thereafter).
+
+The system gracefully falls back to FTS5-only search if dependencies aren't available.
+
+### Context Budget
+
+Session start injection is limited to ~2000 characters to avoid prompt bloat. The system prioritizes:
+1. User preferences
+2. Standing instructions
+3. High-importance memories
+4. Recent context
+
+### File Organization
+
+```
+.claude/rlm_state/
+├── index.db              # Code index database
+├── memory.db             # Memory database
+├── embeddings.hnsw       # Vector index (if enabled)
+├── embeddings_meta.json  # Embedding metadata
+└── chunks/               # Materialized chunks
+```

@@ -1302,6 +1302,97 @@ def _make_helpers(db: Database, chunks_dir: Path) -> dict:
         """Get full statistics."""
         return db.get_stats()
 
+    # =========================================================================
+    # Memory helpers
+    # =========================================================================
+
+    def memory_add(content: str, memory_type: str = 'fact', importance: float = 0.5, tags: list[str] | None = None) -> int:
+        """Add a memory. Returns memory_id."""
+        try:
+            from memory_db import MemoryDatabase, MemoryType, MemorySource
+            mdb = MemoryDatabase()
+            memory_id = mdb.add_memory(
+                content,
+                memory_type=MemoryType(memory_type),
+                source=MemorySource.EXPLICIT,
+                importance=importance,
+                tags=tags or [],
+            )
+            mdb.close()
+            return memory_id
+        except ImportError:
+            print("Memory module not available")
+            return -1
+
+    def memory_search(query: str, limit: int = 10) -> list[dict]:
+        """Search memories using FTS5."""
+        try:
+            from memory_db import MemoryDatabase
+            mdb = MemoryDatabase()
+            results = mdb.search_memories_fts(query, limit=limit)
+            mdb.close()
+            return [m.to_dict() for m in results]
+        except ImportError:
+            return []
+
+    def memory_list(memory_type: str | None = None, limit: int = 20) -> list[dict]:
+        """List memories, optionally filtered by type."""
+        try:
+            from memory_db import MemoryDatabase, MemoryType
+            mdb = MemoryDatabase()
+            if memory_type:
+                results = mdb.get_memories_by_type(MemoryType(memory_type), limit=limit)
+            else:
+                results = mdb.get_all_memories(limit=limit)
+            mdb.close()
+            return [m.to_dict() for m in results]
+        except ImportError:
+            return []
+
+    def memory_context(max_chars: int = 2000) -> str:
+        """Get session context from memories."""
+        try:
+            from memory_db import MemoryDatabase
+            mdb = MemoryDatabase()
+            context = mdb.get_context_for_session(max_chars=max_chars)
+            mdb.close()
+            return context
+        except ImportError:
+            return ""
+
+    def memory_stats() -> dict:
+        """Get memory database statistics."""
+        try:
+            from memory_db import MemoryDatabase
+            mdb = MemoryDatabase()
+            stats = mdb.get_stats()
+            mdb.close()
+            return stats
+        except ImportError:
+            return {}
+
+    def set_preference(key: str, value) -> bool:
+        """Set a user preference."""
+        try:
+            from memory_db import MemoryDatabase
+            mdb = MemoryDatabase()
+            result = mdb.set_preference(key, value)
+            mdb.close()
+            return result
+        except ImportError:
+            return False
+
+    def get_preference(key: str, default=None):
+        """Get a user preference."""
+        try:
+            from memory_db import MemoryDatabase
+            mdb = MemoryDatabase()
+            result = mdb.get_preference(key, default)
+            mdb.close()
+            return result
+        except ImportError:
+            return default
+
     return {
         'find_symbol': find_symbol,
         'find_symbol_exact': find_symbol_exact,
@@ -1322,6 +1413,14 @@ def _make_helpers(db: Database, chunks_dir: Path) -> dict:
         'get_files_importing': get_files_importing,
         'analyze_dependencies': analyze_dependencies,
         'stats': stats,
+        # Memory helpers
+        'memory_add': memory_add,
+        'memory_search': memory_search,
+        'memory_list': memory_list,
+        'memory_context': memory_context,
+        'memory_stats': memory_stats,
+        'set_preference': set_preference,
+        'get_preference': get_preference,
     }
 
 
@@ -1634,6 +1733,123 @@ def cmd_reset(args: argparse.Namespace) -> int:
     return 0
 
 
+# =============================================================================
+# Memory Commands (v2)
+# =============================================================================
+
+def cmd_memory(args: argparse.Namespace) -> int:
+    """Memory management command."""
+    try:
+        from memory_db import MemoryDatabase, MemoryType, MemorySource
+    except ImportError:
+        print("Memory module not available. Check memory_db.py exists.", file=sys.stderr)
+        return 1
+
+    db = MemoryDatabase()
+
+    try:
+        if args.action == 'add':
+            memory_type = MemoryType(args.type) if args.type else MemoryType.FACT
+            tags = args.tags.split(',') if args.tags else []
+            memory_id = db.add_memory(
+                args.content,
+                memory_type=memory_type,
+                source=MemorySource.EXPLICIT,
+                importance=args.importance,
+                tags=tags,
+            )
+            print(f"Added memory {memory_id}")
+
+        elif args.action == 'search':
+            results = db.search_memories_fts(args.query, limit=args.limit)
+            if results:
+                print(f"Found {len(results)} memories:")
+                for m in results:
+                    print(f"  [{m.memory_id}] ({m.memory_type.value}, {m.importance:.1f}) {m.content[:60]}")
+            else:
+                print("No memories found")
+
+        elif args.action == 'list':
+            if args.type:
+                results = db.get_memories_by_type(MemoryType(args.type), limit=args.limit)
+            else:
+                results = db.get_all_memories(limit=args.limit)
+
+            if results:
+                print(f"Memories ({len(results)}):")
+                for m in results:
+                    print(f"  [{m.memory_id}] ({m.memory_type.value}, {m.importance:.1f}) {m.content[:60]}")
+            else:
+                print("No memories")
+
+        elif args.action == 'delete':
+            if db.delete_memory(args.id):
+                print(f"Deleted memory {args.id}")
+            else:
+                print(f"Memory {args.id} not found")
+
+        elif args.action == 'stats':
+            stats = db.get_stats()
+            print("Memory Database Statistics:")
+            print(f"  Total memories: {stats['total_memories']}")
+            print(f"  By type: {stats['by_type']}")
+            print(f"  By source: {stats['by_source']}")
+            print(f"  Total sessions: {stats['total_sessions']}")
+            print(f"  Avg importance: {stats['avg_importance']}")
+
+        elif args.action == 'context':
+            context = db.get_context_for_session(max_chars=args.max_chars)
+            if context:
+                print(context)
+            else:
+                print("No context available")
+
+        elif args.action == 'profile':
+            profile = db.get_profile()
+            if profile:
+                print(f"Profile: {profile.name or '(unnamed)'}")
+                print(f"  Created: {profile.created_at}")
+                print(f"  Updated: {profile.updated_at}")
+                if profile.preferences:
+                    print(f"  Preferences:")
+                    for k, v in profile.preferences.items():
+                        print(f"    {k}: {v}")
+            else:
+                print("No profile found")
+
+        elif args.action == 'set-pref':
+            if db.set_preference(args.key, args.value):
+                print(f"Set preference: {args.key} = {args.value}")
+            else:
+                print("Failed to set preference")
+
+        return 0
+    finally:
+        db.close()
+
+
+def cmd_remember(args: argparse.Namespace) -> int:
+    """Quick command to add a memory."""
+    try:
+        from memory_db import MemoryDatabase, MemoryType, MemorySource
+    except ImportError:
+        print("Memory module not available.", file=sys.stderr)
+        return 1
+
+    db = MemoryDatabase()
+    try:
+        memory_id = db.add_memory(
+            args.content,
+            memory_type=MemoryType.FACT,
+            source=MemorySource.EXPLICIT,
+            importance=0.8,  # Explicit memories are important
+        )
+        print(f"Remembered: {args.content[:50]}... (id: {memory_id})")
+        return 0
+    finally:
+        db.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser."""
     p = argparse.ArgumentParser(
@@ -1699,6 +1915,59 @@ def build_parser() -> argparse.ArgumentParser:
     p_reset = sub.add_parser('reset', help='Delete all indexed data')
     p_reset.add_argument('-y', '--yes', action='store_true', help='Skip confirmation')
     p_reset.set_defaults(func=cmd_reset)
+
+    # ==========================================================================
+    # Memory commands (v2)
+    # ==========================================================================
+
+    # memory (main command with subcommands)
+    p_memory = sub.add_parser('memory', help='Memory management')
+    memory_sub = p_memory.add_subparsers(dest='action', required=True)
+
+    # memory add
+    p_mem_add = memory_sub.add_parser('add', help='Add a memory')
+    p_mem_add.add_argument('content', help='Memory content')
+    p_mem_add.add_argument('--type', default='fact',
+                           choices=['fact', 'preference', 'pattern', 'decision', 'context', 'instruction'],
+                           help='Memory type')
+    p_mem_add.add_argument('--importance', type=float, default=0.5, help='Importance (0-1)')
+    p_mem_add.add_argument('--tags', help='Comma-separated tags')
+
+    # memory search
+    p_mem_search = memory_sub.add_parser('search', help='Search memories')
+    p_mem_search.add_argument('query', help='Search query')
+    p_mem_search.add_argument('--limit', type=int, default=10)
+
+    # memory list
+    p_mem_list = memory_sub.add_parser('list', help='List memories')
+    p_mem_list.add_argument('--type', choices=['fact', 'preference', 'pattern', 'decision', 'context', 'instruction'])
+    p_mem_list.add_argument('--limit', type=int, default=20)
+
+    # memory delete
+    p_mem_del = memory_sub.add_parser('delete', help='Delete a memory')
+    p_mem_del.add_argument('id', type=int, help='Memory ID to delete')
+
+    # memory stats
+    memory_sub.add_parser('stats', help='Show memory statistics')
+
+    # memory context
+    p_mem_ctx = memory_sub.add_parser('context', help='Get session context')
+    p_mem_ctx.add_argument('--max-chars', type=int, default=2000)
+
+    # memory profile
+    memory_sub.add_parser('profile', help='Show user profile')
+
+    # memory set-pref
+    p_mem_pref = memory_sub.add_parser('set-pref', help='Set a preference')
+    p_mem_pref.add_argument('key', help='Preference key')
+    p_mem_pref.add_argument('value', help='Preference value')
+
+    p_memory.set_defaults(func=cmd_memory)
+
+    # remember (quick add)
+    p_remember = sub.add_parser('remember', help='Quick add a memory')
+    p_remember.add_argument('content', help='What to remember')
+    p_remember.set_defaults(func=cmd_remember)
 
     return p
 

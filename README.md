@@ -1,180 +1,175 @@
-# Claude Code RLM
+# Claude Memory
 
-An implementation of Recursive Language Models (RLM) using Claude Code with SQLite-backed indexing for large-scale codebase analysis.
+A persistent memory and codebase indexing plugin for Claude Code. Combines SQLite-backed code analysis with a semantic memory system that learns and remembers across sessions.
 
-## About
+## What It Does
 
-This repository provides an enhanced RLM setup designed for analyzing codebases at scale. It implements the core RLM pattern with significant improvements:
+**Claude Memory** solves two problems:
 
-- **Multi-repository support** - Index multiple repos into a single database
-- **SQLite with WAL mode** for concurrent access and crash recovery
-- **FTS5 full-text search** for instant content queries without memory loading
-- **Incremental indexing** that only re-processes changed files
-- **Multi-language support** with AST (Python) and regex (JS/TS/Java) analysis
-- **Parent symbol tracking** linking methods to their containing classes
-- **Persistent connections** with transaction batching for fast bulk operations
+1. **Large Codebase Analysis** - When codebases exceed Claude's context window, this plugin provides an indexed, searchable representation using SQLite with FTS5 full-text search. It extracts functions, classes, methods, and imports from Python, JavaScript, TypeScript, and Java.
 
-**Based on the RLM paper**:
-> **Recursive Language Models**  
-> Alex L. Zhang, Tim Kraska, Omar Khattab  
-> MIT CSAIL  
-> [arXiv:2512.24601](https://arxiv.org/abs/2512.24601)
+2. **Session Persistence** - Claude Code sessions are ephemeral. This plugin maintains a persistent memory database that captures user preferences, project decisions, and learned context. Relevant memories are automatically injected at session start.
 
-## Multi-Repository Support
+## Key Features
 
-A key feature is the ability to index **multiple repositories** into a single database. This is essential for projects that span multiple repos:
+### Codebase Indexing
+- **Multi-repository support** - Index multiple repos into a single searchable database
+- **Incremental indexing** - Only re-processes changed files (hash-based)
+- **AST analysis** (Python) and **regex analysis** (JS/TS/Java)
+- **FTS5 full-text search** - O(log n) content queries
+- **Parent tracking** - Methods linked to their containing classes
+- **Chunk materialization** - Export code chunks for subagent analysis
+
+### Memory System
+- **Automatic context injection** - Relevant memories injected at session start via hooks
+- **Automatic capture** - Pattern-based extraction of learnings from conversations
+- **Memory types** - Facts, preferences, instructions, decisions, context, patterns
+- **User profile** - Persistent preferences across sessions
+- **Local semantic search** - Optional HNSW vector index with fastembed (air-gapped)
+
+## Quick Start
+
+### Install
 
 ```bash
-# Index frontend repo
-python3 rlm_repl.py init /path/to/frontend --name frontend
+# Clone the repository
+git clone https://github.com/an1310/claude-memory.git
+cd claude-memory
 
-# Index backend repo (same database)
-python3 rlm_repl.py init /path/to/backend --name backend-api
+# Optional: Install semantic search dependencies
+pip install -r requirements.txt
+```
 
-# Index shared libraries
-python3 rlm_repl.py init /path/to/shared-libs --name shared
+### Index a Codebase
 
-# List all repos
-python3 rlm_repl.py repos
+```bash
+# Index a repository
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/your/project
 
-# Search across ALL repos
-python3 rlm_repl.py search --symbol UserService
+# Index multiple repos into the same database
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/frontend --name frontend
+python3 .claude/skills/rlm/scripts/rlm_repl.py init /path/to/backend --name backend
 
-# Search in specific repo (via exec)
-python3 rlm_repl.py exec -c "print(find_symbol('User', repo='backend-api'))"
+# Check what was indexed
+python3 .claude/skills/rlm/scripts/rlm_repl.py status --languages
+```
 
-# Find cross-repo dependencies
-python3 rlm_repl.py exec -c "print(cross_repo_imports('frontend', 'shared'))"
+### Search the Index
 
-# Remove a repo
-python3 rlm_repl.py repos --remove old-repo
+```bash
+# Find symbol definitions
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --symbol UserService
+
+# Full-text search (fast)
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --pattern "authenticate" --fts
+
+# Find imports
+python3 .claude/skills/rlm/scripts/rlm_repl.py search --imports "express"
+```
+
+### Use the Memory System
+
+```bash
+# Remember something
+python3 .claude/skills/rlm/scripts/rlm_repl.py remember "Project uses PostgreSQL 15"
+
+# Search memories
+python3 .claude/skills/rlm/scripts/rlm_repl.py memory search "database"
+
+# View session context
+python3 .claude/skills/rlm/scripts/rlm_repl.py memory context
+
+# Set a preference
+python3 .claude/skills/rlm/scripts/rlm_repl.py memory set-pref test_framework pytest
 ```
 
 ## Architecture
 
-### System Overview
-
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Main Conversation                         │
-│                    (Claude Opus 4.5)                         │
+│                    Claude Code Session                       │
+│                    (Claude Opus/Sonnet)                      │
 └─────────────────────┬───────────────────────────────────────┘
                       │
         ┌─────────────┴─────────────┐
         ▼                           ▼
 ┌───────────────────┐     ┌─────────────────────┐
-│  SQLite Database  │     │  Subagent rlm-subcall│
-│  ┌─────────────┐  │     │  (Claude Haiku)      │
-│  │ repos       │  │     │                      │
-│  │ files       │  │     │  Analyzes chunk      │
-│  │ chunks      │◄─┼─────│  files on disk       │
-│  │ chunks_fts  │  │     │                      │
-│  │ symbols     │  │     └─────────────────────┘
-│  │ imports     │  │
-│  └─────────────┘  │
-└───────────────────┘
+│  Code Index DB    │     │    Memory DB        │
+│  (index.db)       │     │    (memory.db)      │
+│  ├── repos        │     │    ├── memories     │
+│  ├── files        │     │    ├── profile      │
+│  ├── chunks       │     │    └── sessions     │
+│  ├── chunks_fts   │     │                     │
+│  ├── symbols      │     │  ┌─────────────────┐│
+│  └── imports      │     │  │ Vector Index    ││
+│                   │     │  │ (optional)      ││
+└───────────────────┘     │  └─────────────────┘│
+                          └─────────────────────┘
+        ▲                           ▲
+        │                           │
+        └───────────────────────────┘
+                      │
+              ┌───────┴───────┐
+              │   Subagents   │
+              │  (Haiku)      │
+              │  rlm-subcall  │
+              │  memory-ext   │
+              └───────────────┘
 ```
 
-### Database Schema
+## Session Hooks
 
-```sql
-repos           -- Repository metadata (name, root_path, file_count)
-files           -- File metadata (path, language, hash, repo_id)
-chunks          -- Code chunks (functions, classes, methods)
-chunks_fts      -- FTS5 virtual table for fast content search
-symbols         -- Symbol definitions with parent tracking
-imports         -- Import relationships
-"references"    -- Cross-references (future)
+The memory system uses Claude Code hooks for automatic operation:
+
+- **SessionStart** - Injects relevant context from memories into the session
+- **Stop** - Captures learnings from the conversation transcript
+
+These are configured in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {"type": "command", "command": "python3 .claude/skills/rlm/scripts/session_start.py"}
+    ],
+    "Stop": [
+      {"type": "command", "command": "python3 .claude/skills/rlm/scripts/session_stop.py"}
+    ]
+  }
+}
 ```
 
-## Supported Languages
+## Memory Types
 
-| Language | Analysis | Chunks | Symbols | Imports | Parent Tracking |
-|----------|----------|--------|---------|---------|-----------------|
-| Python | AST | ✓ | ✓ | ✓ | ✓ |
-| JavaScript | Regex | ✓ | ✓ | ✓ | - |
-| TypeScript | Regex | ✓ | ✓ | ✓ | - |
-| Java | Regex | ✓ | ✓ | ✓ | ✓ |
-| Others | File-level | - | - | - | - |
+| Type | Description | Example |
+|------|-------------|---------|
+| `fact` | Learned information about the project | "Project uses PostgreSQL 15" |
+| `preference` | User preferences for style/tools | "Prefers functional style" |
+| `instruction` | Standing instructions to follow | "Always run tests before commit" |
+| `decision` | Design decisions made | "Using JWT for authentication" |
+| `context` | Project context | "Migrating from REST to GraphQL" |
+| `pattern` | Code patterns to follow | "Error handling via Result type" |
 
-## Quick Start
+## Automatic Capture
 
-### 1. Index Your Repositories
-
-```bash
-# Index first repo
-python3 rlm_repl.py init /path/to/frontend --name frontend
-
-# Index second repo into same database
-python3 rlm_repl.py init /path/to/backend --name backend
-
-# Index third repo
-python3 rlm_repl.py init /path/to/shared --name shared-lib
-```
-
-### 2. Check What Was Indexed
-
-```bash
-python3 rlm_repl.py status --languages
-```
-
-Output:
-```
-RLM REPL Status
-  Database: .claude/rlm_state/index.db
-  Size: 45.23 MB
-  Repos: 3
-  Files: 1,234
-  Chunks: 5,678
-  Symbols: 12,345
-
-Repos (3):
-  frontend: 456 files
-    Path: /path/to/frontend
-  backend: 512 files
-    Path: /path/to/backend
-  shared-lib: 266 files
-    Path: /path/to/shared
-
-Languages:
-  python: 456 files
-  java: 389 files
-  typescript: 389 files
-```
-
-### 3. Search Across All Repos
-
-```bash
-# Find symbol in all repos
-python3 rlm_repl.py search --symbol UserService
-
-# Find with FTS5 (fast)
-python3 rlm_repl.py search --pattern "authenticate" --fts
-```
-
-### 4. Search Within Specific Repo
-
-```python
-# Via exec command
-python3 rlm_repl.py exec -c "
-results = find_symbol('User', 'class', repo='backend')
-for r in results:
-    print(f\"{r['repo_name']}/{r['filepath']}: {r['symbol_name']}\")
-"
-```
+The session stop hook automatically captures memories from phrases like:
+- "remember that..." / "remember this..."
+- "I prefer..." / "I like..."
+- "always..." / "never..."
+- "we decided..." / "let's go with..."
 
 ## CLI Reference
 
-### Commands
+### Codebase Commands
 
 ```bash
-# Index a repo (can call multiple times for different repos)
+# Index
 rlm_repl.py init <path> [--name NAME] [--extensions .py,.java] [--full]
 
-# List/manage repos
+# Manage repos
 rlm_repl.py repos [--remove NAME] [-y]
 
-# Show status
+# Status
 rlm_repl.py status [--languages] [--chunks]
 
 # Search
@@ -190,143 +185,113 @@ rlm_repl.py vacuum
 rlm_repl.py reset [-y]
 ```
 
-### Helper Functions (in `exec` mode)
+### Memory Commands
+
+```bash
+# Add memory
+rlm_repl.py memory add "content" [--type TYPE] [--importance 0.5] [--tags a,b]
+rlm_repl.py remember "content"  # Quick add
+
+# Search/list
+rlm_repl.py memory search "query"
+rlm_repl.py memory list [--type TYPE] [--limit N]
+
+# Context
+rlm_repl.py memory context [--max-chars 2000]
+
+# Profile
+rlm_repl.py memory profile
+rlm_repl.py memory set-pref <key> <value>
+
+# Stats
+rlm_repl.py memory stats
+```
+
+## Helper Functions (exec mode)
 
 ```python
-# Symbol search (with optional repo filter)
+# Codebase helpers
 find_symbol(name, symbol_type=None, repo=None)
 find_symbol_exact(name, symbol_type=None, repo=None)
 get_class_methods(class_name)
-
-# Content search
-search_content(query, limit=100)          # FTS5 (FAST)
-search_chunks(pattern, chunk_type, limit) # Regex
-
-# Repo management
-list_repos()
-get_repo(repo_name)
-get_files_in_repo(repo_name)
-cross_repo_imports(from_repo, to_repo)
-
-# Chunk operations
-get_chunk(chunk_id)
-get_file_chunks(filepath)
-write_chunk_to_file(chunk_id)
-write_chunks_combined(chunk_ids, path)
-
-# File and import queries
+search_content(query, limit=100)  # FTS5
 get_files_by_language(language)
-get_imports_for_file(filepath)
 get_files_importing(module_name)
-analyze_dependencies(filepath)
-
-# Statistics
+write_chunk_to_file(chunk_id)
 stats()
 
-# Direct SQL
-db.query(sql, params)
+# Memory helpers
+memory_add(content, memory_type='fact', importance=0.5, tags=None)
+memory_search(query, limit=10)
+memory_list(memory_type=None, limit=20)
+memory_context(max_chars=2000)
+set_preference(key, value)
+get_preference(key, default=None)
+memory_stats()
 ```
 
-## Usage Patterns
+## Supported Languages
 
-### Search Across Multiple Repos
+| Language | Analysis | Chunks | Symbols | Imports | Parent Tracking |
+|----------|----------|--------|---------|---------|-----------------|
+| Python | AST | ✓ | ✓ | ✓ | ✓ |
+| JavaScript | Regex | ✓ | ✓ | ✓ | - |
+| TypeScript | Regex | ✓ | ✓ | ✓ | - |
+| Java | Regex | ✓ | ✓ | ✓ | ✓ |
 
-```python
-# Find all Service classes across all repos
-services = find_symbol('Service', 'class')
-print(f"Found {len(services)} services across all repos:")
-for s in services:
-    print(f"  {s['repo_name']}/{s['filepath']}: {s['symbol_name']}")
-```
+## Semantic Search (Optional)
 
-### Search in Specific Repo
-
-```python
-# Find User classes only in backend repo
-backend_users = find_symbol('User', 'class', repo='backend')
-for u in backend_users:
-    print(f"{u['filepath']}:{u['definition_line']}")
-```
-
-### Analyze Cross-Repo Dependencies
-
-```python
-# What does frontend import from shared-lib?
-cross_deps = cross_repo_imports('frontend', 'shared-lib')
-print(f"Found {len(cross_deps)} cross-repo imports")
-for dep in cross_deps:
-    print(f"  {dep['filepath']} imports {dep['module_name']}")
-```
-
-### Get All Files in a Repo
-
-```python
-# List all files in backend repo
-backend_files = get_files_in_repo('backend')
-print(f"Backend has {len(backend_files)} files")
-for f in backend_files:
-    print(f"  {f['filepath']} ({f['language']})")
-```
-
-
-## Troubleshooting
-
-### Remove a Repo
+For vector-based semantic search, install the optional dependencies:
 
 ```bash
-# Interactive
-python3 rlm_repl.py repos --remove old-repo
-
-# Non-interactive
-python3 rlm_repl.py repos --remove old-repo -y
+pip install fastembed>=0.3.0 hnswlib>=0.8.0 numpy>=1.24.0
 ```
 
-### Re-index a Single Repo
-
-```bash
-# Just run init again with --full flag
-python3 rlm_repl.py init /path/to/repo --name my-repo --full
-```
-
-### Database Size Growing Too Large
-
-```bash
-# Vacuum to reclaim space
-python3 rlm_repl.py vacuum
-```
+First embedding generation downloads ~500MB model (cached thereafter). The system works without these dependencies, falling back to FTS5-only search.
 
 ## File Structure
 
 ```
 .claude/
+├── settings.json             # Hook configuration
 ├── skills/rlm/
-│   ├── SKILL.md
+│   ├── SKILL.md              # Skill documentation
 │   └── scripts/
-│       └── rlm_repl.py
+│       ├── rlm_repl.py       # Main CLI
+│       ├── memory_db.py      # Memory database
+│       ├── embeddings.py     # Vector search
+│       ├── session_start.py  # Context injection hook
+│       └── session_stop.py   # Memory capture hook
 ├── agents/
-│   └── rlm-subcall.md
+│   ├── rlm-subcall.md        # Code chunk analyzer
+│   └── memory-extractor.md   # Memory extraction agent
 └── rlm_state/
-    ├── index.db          # Single database for all repos
-    ├── index.db-wal
-    └── chunks/
+    ├── index.db              # Code index
+    ├── memory.db             # Memory store
+    ├── embeddings.hnsw       # Vector index (optional)
+    └── chunks/               # Materialized chunks
 ```
 
 ## Testing
 
 ```bash
 python3 test_rlm.py
+
+# Or with pytest
+python -m pytest tests/
 ```
 
-Expected output includes multi-repo test:
-```
-Testing Multi-Repo Support
-==========================
-Indexing second repo...
-All repos (2):
-  shared-lib: 1 files
-  test-project: 4 files
+## Background
 
-find_symbol('Service', 'class') across all repos: 3 results
-find_symbol in 'shared-lib' only: 1 results
-✓ Multi-repo support working correctly
-```
+This plugin implements techniques from the Recursive Language Model (RLM) paper for handling large contexts:
+
+> **Recursive Language Models**
+> Alex L. Zhang, Tim Kraska, Omar Khattab
+> MIT CSAIL
+> [arXiv:2512.24601](https://arxiv.org/abs/2512.24601)
+
+The memory system extends this with persistent storage across sessions, enabling Claude to learn and remember user preferences and project context over time.
+
+## License
+
+MIT

@@ -1,0 +1,15 @@
+# Claude Memory Dependencies
+# ==========================
+
+# Core dependencies (always required)
+# None - uses Python standard library (sqlite3, json, etc.)
+
+# Optional: Semantic search with local embeddings
+# Install for air-gapped vector similarity search
+# First embedding generation downloads ~500MB model (cached thereafter)
+fastembed>=0.3.0      # Local ONNX-based text embeddings
+hnswlib>=0.8.0        # Efficient approximate nearest neighbor search
+numpy>=1.24.0         # Required by fastembed and hnswlib
+
+# Development dependencies (for testing)
+# pytest>=7.0.0       # Uncomment for development
